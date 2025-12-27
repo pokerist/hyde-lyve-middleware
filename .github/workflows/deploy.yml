@@ -1,0 +1,106 @@
+name: Deploy Hydepark Lyve Middleware
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Run basic tests
+      run: |
+        python -c "
+        from app_production import app
+        from config import Config
+        print('✅ Configuration loaded successfully')
+        "
+    
+    - name: Test database setup
+      run: |
+        python -c "
+        from app_production import app, db
+        with app.app_context():
+            db.create_all()
+            print('✅ Database setup successful')
+        "
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to server
+      uses: appleboy/ssh-action@v0.1.5
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        username: ${{ secrets.DEPLOY_USER }}
+        key: ${{ secrets.DEPLOY_KEY }}
+        script: |
+          echo "🚀 Starting deployment..."
+          
+          # Navigate to project directory
+          cd /opt/hyde-lyve || exit 1
+          
+          # Pull latest changes
+          echo "📥 Pulling latest changes..."
+          git pull origin main
+          
+          # Activate virtual environment
+          source venv/bin/activate
+          
+          # Install/update dependencies
+          echo "📦 Installing dependencies..."
+          pip install -r requirements.txt
+          
+          # Run database migrations
+          echo "🗄️ Running database migrations..."
+          python3 recreate_database.py
+          
+          # Restart the service
+          echo "🔄 Restarting service..."
+          sudo systemctl restart hyde-lyve-middleware
+          
+          # Check service status
+          echo "📊 Checking service status..."
+          sudo systemctl status hyde-lyve-middleware --no-pager
+          
+          # Test health endpoint
+          echo "🩺 Testing health endpoint..."
+          sleep 5
+          curl -f http://localhost:3000/health || exit 1
+          
+          echo "✅ Deployment completed successfully!"
+    
+    - name: Notify deployment success
+      if: success()
+      run: |
+        echo "🎉 Deployment successful!"
+        echo "Application is running on port 3000"
+        echo "Web interface: http://your-server:3000/test"
+        echo "API documentation: http://your-server:3000/api-docs"
+    
+    - name: Notify deployment failure
+      if: failure()
+      run: |
+        echo "❌ Deployment failed!"
+        echo "Please check the deployment logs and server status"
+        exit 1

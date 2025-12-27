@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  hyde-lyve-middleware:
+    build: .
+    container_name: hyde-lyve-middleware
+    ports:
+      - "3000:3000"
+    environment:
+      - FLASK_ENV=production
+      - PORT=3000
+      # HikCentral Configuration - Update these values
+      - HIKCENTRAL_BASE_URL=https://your-hikcentral-server/artemis
+      - HIKCENTRAL_APP_KEY=your-app-key
+      - HIKCENTRAL_APP_SECRET=your-app-secret
+      - HIKCENTRAL_USER_ID=your-user-id
+      - HIKCENTRAL_ORG_INDEX_CODE=1
+      - HIKCENTRAL_VERIFY_SSL=true
+      # API Configuration
+      - LYVE_API_KEY=your-secure-api-key-here
+      - REQUIRE_API_KEY=true
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./logs:/app/logs
+      - ./data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Optional: Nginx reverse proxy for SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: hyde-lyve-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - hyde-lyve-middleware
+    restart: unless-stopped
+    profiles:
+      - with-nginx
