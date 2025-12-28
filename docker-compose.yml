@@ -1,28 +1,73 @@
 version: '3.8'
 
 services:
-  hyde-lyve-middleware:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: hyde-lyve-postgres
+    environment:
+      POSTGRES_DB: hyde_lyve
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-postgres.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - hyde-lyve-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: hyde-lyve-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - hyde-lyve-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # FastAPI Application
+  app:
     build: .
-    container_name: hyde-lyve-middleware
+    container_name: hyde-lyve-app
     ports:
       - "3000:3000"
     environment:
-      - FLASK_ENV=production
-      - PORT=3000
-      # HikCentral Configuration - Update these values
-      - HIKCENTRAL_BASE_URL=https://your-hikcentral-server/artemis
-      - HIKCENTRAL_APP_KEY=your-app-key
-      - HIKCENTRAL_APP_SECRET=your-app-secret
-      - HIKCENTRAL_USER_ID=your-user-id
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres/hyde_lyve
+      - REDIS_URL=redis://redis:6379/0
+      - HIKCENTRAL_BASE_URL=https://192.168.1.101/artemis
+      - HIKCENTRAL_APP_KEY=27108141
+      - HIKCENTRAL_APP_SECRET=c3U7KikkPGo2Yka6GMZ5
+      - HIKCENTRAL_USER_ID=admin
       - HIKCENTRAL_ORG_INDEX_CODE=1
-      - HIKCENTRAL_VERIFY_SSL=true
-      # API Configuration
-      - LYVE_API_KEY=your-secure-api-key-here
-      - REQUIRE_API_KEY=true
-      - LOG_LEVEL=INFO
+      - HIKCENTRAL_VERIFY_SSL=False
+      - API_KEY=demo-key
+      - REQUIRE_API_KEY=True
+      - CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+      - CIRCUIT_BREAKER_RECOVERY_TIMEOUT=60
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
       - ./logs:/app/logs
-      - ./data:/app/data
+    networks:
+      - hyde-lyve-network
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
@@ -31,18 +76,10 @@ services:
       retries: 3
       start_period: 40s
 
-  # Optional: Nginx reverse proxy for SSL termination
-  nginx:
-    image: nginx:alpine
-    container_name: hyde-lyve-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - hyde-lyve-middleware
-    restart: unless-stopped
-    profiles:
-      - with-nginx
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  hyde-lyve-network:
+    driver: bridge
