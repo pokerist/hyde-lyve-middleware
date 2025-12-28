@@ -8,6 +8,7 @@ from app.models import ResidentMapping, SyncLog, QrCode
 from app.hikcentral_client import HikCentralClient
 from app.circuit_breaker import get_circuit_breaker
 from app.config import settings
+import json
 
 logger = logging.getLogger(__name__)
 

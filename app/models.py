@@ -134,14 +134,48 @@ engine = None
 AsyncSessionLocal = None
 
 def create_database_engine(database_url: str):
+    """Create database engine with proper connection pooling"""
     global engine, AsyncSessionLocal
-    engine = create_async_engine(database_url, echo=False)
-    AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    
+    # Add connection pooling parameters
+    engine = create_async_engine(
+        database_url,
+        echo=False,
+        pool_size=20,
+        max_overflow=0,
+        pool_pre_ping=True,  # Test connections before using them
+        pool_recycle=3600,   # Recycle connections after 1 hour
+    )
+    
+    AsyncSessionLocal = async_sessionmaker(
+        engine, 
+        class_=AsyncSession, 
+        expire_on_commit=False,
+        autoflush=False,
+        autocommit=False
+    )
+    
     return engine
 
 async def get_db():
+    """Dependency to get database session"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
+        except Exception as e:
+            await session.rollback()
+            raise e
         finally:
             await session.close()
+
+async def test_database_connection():
+    """Test database connectivity"""
+    try:
+        async with AsyncSessionLocal() as session:
+            # Simple query to test connection
+            result = await session.execute("SELECT 1")
+            await result.fetchone()
+            return True
+    except Exception as e:
+        print(f"Database connection test failed: {e}")
+        return False
